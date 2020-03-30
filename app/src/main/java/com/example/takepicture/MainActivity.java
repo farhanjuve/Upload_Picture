@@ -11,6 +11,8 @@ import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Message;
 import android.provider.MediaStore;
 import android.util.Base64;
 import android.util.Log;
@@ -18,18 +20,24 @@ import android.view.ContextThemeWrapper;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
+import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
 import org.json.JSONObject;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
@@ -42,11 +50,24 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 
+
 import javax.net.ssl.HttpsURLConnection;
 
 public class MainActivity extends AppCompatActivity {
-	
-	public static final String KEY_User_Document1 = "doc1";
+
+    private static final String REQUEST_METHOD_GET = "GET";
+    // Debug log tag.
+    private static final String TAG_HTTP_URL_CONNECTION = "HTTP_URL_CONNECTION";
+    // Child thread sent message type value to activity main thread Handler.
+    private static final int REQUEST_CODE_SHOW_RESPONSE_TEXT = 1;
+    // The key of message stored server returned data.
+    private static final String KEY_RESPONSE_TEXT = "KEY_RESPONSE_TEXT";
+    // Send http request button.
+    private Button requestUrlButton = null;
+    // This handler used to listen to child thread show return page html text message and display those text in responseTextView.
+    private Handler uiUpdater = null;
+
+    public static final String KEY_User_Document1 = "doc1";
     private ArrayList<mDatabase> dba;
     private HttpURLConnection httpConn;
     ImageView IDProf;
@@ -113,24 +134,41 @@ public class MainActivity extends AppCompatActivity {
         bmp.compress(Bitmap.CompressFormat.JPEG, 100, baos);
         byte[] imageBytes = baos.toByteArray();
         String encodedImage = Base64.encodeToString(imageBytes, Base64.DEFAULT);
-        uploadimageapi.execute("http://localhost:8080/upload-img/",encodedImage);
+        Log.d("TAG", "toStringImage: " + encodedImage);
+        new uploadimageapi().execute("http://192.168.100.122:8000/api/uploadImage",encodedImage);
+//nyobadoang        startSendHttpRequestThread("http://192.168.100.9:8000/api/uploadImage");
     }
+/*
+    private void testConn(){
+        URL url = new URL("http://www.android.com/");
+        HttpURLConnection urlConnection = null;
+        try {
+            urlConnection = (HttpURLConnection) url.openConnection();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        try {
+            InputStream in = new BufferedInputStream(urlConnection.getInputStream());
+            readStream(in);
+        } finally {
+            urlConnection.disconnect();
+        }
+    }*/
 
     private class uploadimageapi extends AsyncTask<String, Void, String> {
         @Override
         protected String doInBackground(String... strings) {
             String url = strings[0];
-            int position = Integer.parseInt(strings[1]);
+            String bitmapDecode = strings[1];
+            Log.d("LOGTAG", "doInBackground: " + url);
+            Log.d("LOGTAG", "doInBackground: " + bitmapDecode);
             String access_token = "Q39I9uEt7TGwgOJjXVuo5sFfOINrnYkz7NvlmrmvzBqFOHo1R5v6DImjAPmq";
 
             try{
                 URL url1 = new URL(url);
 
-                mDatabase driver = dba.get(position);
-
                 JSONObject params = new JSONObject();
-                params.put("image", driver.getImage());
-                params.put("img_name", driver.getImg_name());
+                params.put("img_file", bitmapDecode);
                 Log.d("params",params.toString());
 
                 httpConn = (HttpURLConnection) url1.openConnection();
@@ -193,11 +231,143 @@ public class MainActivity extends AppCompatActivity {
                 }
             } catch (Exception e) {
                 return new String("Exception: " + e.getMessage());
-            } catch(MalformedURLException ex)
-            {
-                Log.e("TAG_HTTP_URL_CONNECTION", ex.getMessage(), ex);
             }
         }
+/*
+        @Override
+        protected String doInBackground(String... strings) {
+            String urlString = strings[0]; // URL to call
+            String data = strings[1]; //data to post
+            OutputStream out = null;
+
+            try {
+                URL url = new URL(urlString);
+                HttpURLConnection urlConnection = (HttpURLConnection) url.openConnection();
+                out = new BufferedOutputStream(urlConnection.getOutputStream());
+
+                BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(out, "UTF-8"));
+                writer.write(data);
+                writer.flush();
+                writer.close();
+                out.close();
+
+                urlConnection.connect();
+            } catch (Exception e) {
+                uploading.dismiss();
+                System.out.println(e.getMessage());
+            }
+            return null;
+        }
+*/
+
+        @Override
+        protected void onPostExecute(String s) {
+            super.onPostExecute(s);
+            Toast.makeText(MainActivity.this, " " + s, Toast.LENGTH_LONG).show();
+            Log.d("LOGTAG", "onPostExecute: " + s);
+            uploading.dismiss();
+        }
+    }
+
+    private void startSendHttpRequestThread(final String reqUrl)
+    {
+        Thread sendHttpRequestThread = new Thread()
+        {
+            @Override
+            public void run() {
+                // Maintain http url connection.
+                HttpURLConnection httpConn = null;
+
+                // Read text input stream.
+                InputStreamReader isReader = null;
+
+                // Read text into buffer.
+                BufferedReader bufReader = null;
+
+                // Save server response text.
+                StringBuffer readTextBuf = new StringBuffer();
+
+                try {
+                    // Create a URL object use page url.
+                    URL url = new URL(reqUrl);
+
+                    // Open http connection to web server.
+                    httpConn = (HttpURLConnection)url.openConnection();
+
+                    // Set http request method to get.
+                    httpConn.setRequestMethod(REQUEST_METHOD_GET);
+
+                    // Set connection timeout and read timeout value.
+                    httpConn.setConnectTimeout(10000);
+                    httpConn.setReadTimeout(10000);
+
+                    // Get input stream from web url connection.
+                    InputStream inputStream = httpConn.getInputStream();
+
+                    // Create input stream reader based on url connection input stream.
+                    isReader = new InputStreamReader(inputStream);
+
+                    // Create buffered reader.
+                    bufReader = new BufferedReader(isReader);
+
+                    // Read line of text from server response.
+                    String line = bufReader.readLine();
+
+                    // Loop while return line is not null.
+                    while(line != null)
+                    {
+                        // Append the text to string buffer.
+                        readTextBuf.append(line);
+
+                        // Continue to read text line.
+                        line = bufReader.readLine();
+                    }
+
+                    // Send message to main thread to update response text in TextView after read all.
+                    Message message = new Message();
+
+                    // Set message type.
+                    message.what = REQUEST_CODE_SHOW_RESPONSE_TEXT;
+
+                    // Create a bundle object.
+                    Bundle bundle = new Bundle();
+                    // Put response text in the bundle with the special key.
+                    bundle.putString(KEY_RESPONSE_TEXT, readTextBuf.toString());
+                    // Set bundle data in message.
+                    message.setData(bundle);
+                    // Send message to main thread Handler to process.
+                    uiUpdater.sendMessage(message);
+                }catch(MalformedURLException ex)
+                {
+                    Log.e(TAG_HTTP_URL_CONNECTION, ex.getMessage(), ex);
+                }catch(IOException ex)
+                {
+                    Log.e(TAG_HTTP_URL_CONNECTION, ex.getMessage(), ex);
+                }finally {
+                    try {
+                        if (bufReader != null) {
+                            bufReader.close();
+                            bufReader = null;
+                        }
+
+                        if (isReader != null) {
+                            isReader.close();
+                            isReader = null;
+                        }
+
+                        if (httpConn != null) {
+                            httpConn.disconnect();
+                            httpConn = null;
+                        }
+                    }catch (IOException ex)
+                    {
+                        Log.e(TAG_HTTP_URL_CONNECTION, ex.getMessage(), ex);
+                    }
+                }
+            }
+        };
+        // Start the child thread to request web page.
+        sendHttpRequestThread.start();
     }
 
 /*
