@@ -168,6 +168,7 @@ public class MainActivity extends AppCompatActivity {
                 URL url1 = new URL(url);
 
                 JSONObject params = new JSONObject();
+                params.put("email", "achmad.farhan@dhl.com");
                 params.put("img_file", bitmapDecode);
                 Log.d("params",params.toString());
 
