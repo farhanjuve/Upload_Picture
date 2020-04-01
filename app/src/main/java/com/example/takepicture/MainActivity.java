@@ -1,96 +1,56 @@
 package com.example.takepicture;
 
 import android.Manifest;
-import android.app.AlertDialog;
 import android.app.ProgressDialog;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.database.Cursor;
 import android.graphics.Bitmap;
-
-import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.os.AsyncTask;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
-import android.os.Handler;
-import android.os.Message;
 import android.provider.MediaStore;
 import android.util.Base64;
 import android.util.Log;
-import android.view.ContextThemeWrapper;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.Toast;
+
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Iterator;
+
+import javax.net.ssl.HttpsURLConnection;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 
-import org.json.JSONObject;
-
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.io.OutputStreamWriter;
-import java.net.HttpURLConnection;
-import java.net.MalformedURLException;
-import java.net.URL;
-import java.net.URLConnection;
-import java.net.URLEncoder;
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
-
-
-import javax.net.ssl.HttpsURLConnection;
-
 public class MainActivity extends AppCompatActivity {
 
-    private static final String REQUEST_METHOD_GET = "GET";
-    // Debug log tag.
-    private static final String TAG_HTTP_URL_CONNECTION = "HTTP_URL_CONNECTION";
-    // Child thread sent message type value to activity main thread Handler.
-    private static final int REQUEST_CODE_SHOW_RESPONSE_TEXT = 1;
-    // The key of message stored server returned data.
-    private static final String KEY_RESPONSE_TEXT = "KEY_RESPONSE_TEXT";
-    // Send http request button.
-    private Button requestUrlButton = null;
-    // This handler used to listen to child thread show return page html text message and display those text in responseTextView.
-    private Handler uiUpdater = null;
-
-    public static final String KEY_User_Document1 = "doc1";
-    private ArrayList<mDatabase> dba;
     private HttpURLConnection httpConn;
-    ImageView IDProf;
     ImageView imageView;
     Button Upload_Btn;
-    Bitmap imageBitmap;
-    Bitmap selectedImage;
     private ProgressDialog uploading;
-
-    private String Document_img1="";
-    private Object imageUri;
+    Uri photoURI;
     String currentPhotoPath;
     private static final int MY_CAMERA_REQUEST_CODE = 100;
+    static final int REQUEST_IMAGE_CAPTURE = 1;
 
 
     @Override
@@ -98,9 +58,14 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        //permission check
+        PackageManager pm  = getPackageManager();
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
                 == PackageManager.PERMISSION_DENIED){
             ActivityCompat.requestPermissions(this, new String[] {Manifest.permission.CAMERA}, MY_CAMERA_REQUEST_CODE);
+        }
+        if (pm.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)){
+            ActivityCompat.requestPermissions(this, new String[] {PackageManager.FEATURE_CAMERA_ANY}, MY_CAMERA_REQUEST_CODE);
         }
         if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
                 == PackageManager.PERMISSION_DENIED){
@@ -119,22 +84,12 @@ public class MainActivity extends AppCompatActivity {
         imageView.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                /*
-                if(Build.VERSION.SDK_INT>= Build.VERSION_CODES.M) {
-                    if (ContextCompat.checkSelfPermission(MainActivity.this,
-                            android.Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                        ActivityCompat.requestPermissions(MainActivity.this, new String[]{android.READ_EXTERNAL_STORAGE}, 1);
-                    }
-                }
-                 */
                 dispatchTakePictureIntent();
             }
         });
 
     }
 
-    static final int REQUEST_IMAGE_CAPTURE = 1;
-    static final int REQUEST_TAKE_PHOTO = 1;
 
     private void dispatchTakePictureIntent() {
         Intent takePictureIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
@@ -148,20 +103,12 @@ public class MainActivity extends AppCompatActivity {
             }
             // Continue only if the File was successfully created
             if (photoFile != null) {
-                Uri photoURI = FileProvider.getUriForFile(this,
+                photoURI = FileProvider.getUriForFile(this,
                         "com.example.takepicture.fileprovider",
                         photoFile);
                 Log.d("photoURITAG", "dispatchTakePictureIntent: " + photoURI.getPath());
-                String imagePath = photoURI.getPath();
-
-                Bundle bundle = new Bundle();
-//                bundle.putParcelable(MediaStore.EXTRA_OUTPUT, photoURI);
-                bundle.putString("path", imagePath);
-
-                takePictureIntent.putExtras(bundle);
-
-                /*takePictureIntent.putExtra("path", imagePath);
-                takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoURI);*/
+                Toast.makeText(this, "File saved at: " + photoURI.getPath(), Toast.LENGTH_SHORT).show();
+                takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoURI);
                 startActivityForResult(takePictureIntent, REQUEST_IMAGE_CAPTURE);
             }
         }
@@ -170,133 +117,24 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         uploading.show();
-        if (requestCode == REQUEST_IMAGE_CAPTURE && resultCode == RESULT_OK) {
-            if(data==null) {
-                Toast.makeText(this, "Tidak ada data", Toast.LENGTH_SHORT).show();
-                uploading.dismiss();
-            } else {
-                String imagePath = data.getExtras().getString("path");
-                Bitmap imageBitmap = null;
-                try {
-                    imageBitmap = (Bitmap) loadBitmap(imagePath);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-                imageView.setImageBitmap(imageBitmap);
-
-                if (imageBitmap != null) {
-                    toStringImage(imageBitmap);
-                } else {
-                    uploading.dismiss();
-                }
-//                Bundle extras = data.getExtras();
-//                final Uri imageUri = Uri.parse(imagePath);
-//                final Uri imageUri = data.getParcelableExtra(MediaStore.EXTRA_OUTPUT);
-//                Toast.makeText(this, "berhasil cok", Toast.LENGTH_SHORT).show()
-//                Toast.makeText(this, imageUri.getPath(), Toast.LENGTH_SHORT).show();
-/*
-                InputStream imageStream = null;
-                try {
-                    imageStream = getContentResolver().openInputStream(imageUri);
-                } catch (FileNotFoundException e) {
-                    Toast.makeText(this, "File Bitmap tidak terbentuk", Toast.LENGTH_SHORT).show();
-                    e.printStackTrace();
-                    try {
-                        Thread.sleep(2000);
-                    } catch (InterruptedException ex) {
-                        ex.printStackTrace();
-                    }
-                }
-
-                final Bitmap selectedImage = BitmapFactory.decodeStream(imageStream);
-/*                Bundle extras = data.getExtras();
-                imageBitmap = (Bitmap) extras.get("data");*/
-//                toStringImage(selectedImage);
-//            Log.d("LOGURI", "onActivityResult: " + imageUri);
-//            imageBitmap = (Bitmap) extras.get("data");
-//            imageView.setImageBitmap(imageBitmap);
-            }
-        }
-    }
-
-    public Bitmap loadBitmap(String url) throws IOException {
-        InputStream in =  getContentResolver().openInputStream(Uri.parse("url"));
-        OutputStream out = new FileOutputStream(new File("your_file_here"));
-        byte[] buf = new byte[1024];
-        int len;
-        while((len=in.read(buf))>0){
-            out.write(buf,0,len);
-        }
-        out.close();
-        in.close();
-
-
-        Bitmap bm = null;
-
-        bm = BitmapFactory.decodeStream(in);
-        /*
-        InputStream is = null;
-        BufferedInputStream bis = null;
-        try
-        {
-            URLConnection conn = new URL(url).openConnection();
-            conn.connect();
-            is = conn.getInputStream();
-            bis = new BufferedInputStream(is, 8192);
-            bm = BitmapFactory.decodeStream(bis);
-        }
-        catch (Exception e)
-        {
-            e.printStackTrace();
-        }
-        finally {
-            if (bis != null)
-            {
-                try
-                {
-                    bis.close();
-                }
-                catch (IOException e)
-                {
-                    e.printStackTrace();
-                }
-            }
-            if (is != null)
-            {
-                try
-                {
-                    is.close();
-                }
-                catch (IOException e)
-                {
-                    e.printStackTrace();
-                }
-            }
-        }*/
-        return bm;
-    }
-
-    public byte[] getBytesFromUri(Uri uri) {
-        byte[] bytes = null;
-
         try {
-            InputStream inputStream = this.getContentResolver().openInputStream(uri);
-            bytes = getBytesFromInputStream(inputStream);
-
-        } catch (IOException e) {
+            Thread.sleep(2000);
+        } catch (InterruptedException e) {
             e.printStackTrace();
         }
-
-        return bytes;
-    }
-
-    public static byte[] getBytesFromInputStream(InputStream is) throws IOException {
-        ByteArrayOutputStream os = new ByteArrayOutputStream();
-        byte[] buffer = new byte[0xFFFF];
-        for (int len = is.read(buffer); len != -1; len = is.read(buffer)) {
-            os.write(buffer, 0, len);
+        if (requestCode == REQUEST_IMAGE_CAPTURE && resultCode == RESULT_OK) {
+            Bitmap photo;
+            try {
+                //this method below fail on SDK29, take cautions!
+                photo = MediaStore.Images.Media.getBitmap(this.getContentResolver(), photoURI);
+                toStringImage(photo);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            uploading.dismiss();
+        } else {
+            Toast.makeText(this, "Fail to take picture. Please try again", Toast.LENGTH_LONG).show();
         }
-        return os.toByteArray();
     }
 
     private File createImageFile() throws IOException {
@@ -321,12 +159,13 @@ public class MainActivity extends AppCompatActivity {
         byte[] imageBytes = baos.toByteArray();
         String encodedImage = Base64.encodeToString(imageBytes, Base64.DEFAULT);
         Log.d("TAG", "toStringImage: " + encodedImage);
-        new uploadimageapi().execute("http://192.168.100.122:8000/api/uploadImage",encodedImage);
+        new uploadimageapi().execute("http://192.168.100.122:8000/api/uploadImage", encodedImage);
     }
 
     private class uploadimageapi extends AsyncTask<String, Void, String> {
         @Override
         protected String doInBackground(String... strings) {
+            uploading.show();
             String url = strings[0];
             String bitmapDecode = strings[1];
             Log.d("LOGTAG", "doInBackground: " + url);
@@ -337,6 +176,8 @@ public class MainActivity extends AppCompatActivity {
                 URL url1 = new URL(url);
 
                 JSONObject params = new JSONObject();
+                params.put("email", "farhanjuve@gmail.com");
+                params.put("task", "task-02");
                 params.put("img_file", bitmapDecode);
                 Log.d("params",params.toString());
 
@@ -393,12 +234,17 @@ public class MainActivity extends AppCompatActivity {
                     }
 
                     in.close();
+                    uploading.dismiss();
                     return sb.toString();
                 }
                 else {
+                    uploading.dismiss();
+                    Toast.makeText(MainActivity.this, "ERROR CODE : 01 Fail to upload. Please try again", Toast.LENGTH_LONG).show();
                     return new String("false : "+responseCode);
                 }
             } catch (Exception e) {
+                uploading.dismiss();
+                Toast.makeText(MainActivity.this, "ERROR CODE : 02 Fail to upload. Please try again", Toast.LENGTH_LONG).show();
                 return new String("Exception: " + e.getMessage());
             }
         }
@@ -406,9 +252,14 @@ public class MainActivity extends AppCompatActivity {
         @Override
         protected void onPostExecute(String s) {
             super.onPostExecute(s);
-            Toast.makeText(MainActivity.this, " " + s, Toast.LENGTH_LONG).show();
-            Log.d("LOGTAG", "onPostExecute: " + s);
-            uploading.dismiss();
+            if (s != null){
+                Toast.makeText(MainActivity.this, " " + s, Toast.LENGTH_LONG).show();
+                Log.d("LOGTAG", "onPostExecute: " + s);
+                uploading.dismiss();
+            } else {
+                Toast.makeText(MainActivity.this, "Uploaded Successfully", Toast.LENGTH_SHORT).show();
+                uploading.dismiss();
+            }
         }
     }
 }
