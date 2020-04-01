@@ -1,14 +1,18 @@
 package com.example.takepicture;
 
+import android.Manifest;
 import android.app.AlertDialog;
 import android.app.ProgressDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Bitmap;
+
 import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.os.AsyncTask;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
@@ -23,6 +27,9 @@ import android.widget.ImageView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+import androidx.core.content.FileProvider;
 
 import org.json.JSONObject;
 
@@ -44,8 +51,11 @@ import java.io.OutputStreamWriter;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.net.URLConnection;
 import java.net.URLEncoder;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -74,15 +84,28 @@ public class MainActivity extends AppCompatActivity {
     ImageView imageView;
     Button Upload_Btn;
     Bitmap imageBitmap;
+    Bitmap selectedImage;
     private ProgressDialog uploading;
 
     private String Document_img1="";
+    private Object imageUri;
+    String currentPhotoPath;
+    private static final int MY_CAMERA_REQUEST_CODE = 100;
 
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+                == PackageManager.PERMISSION_DENIED){
+            ActivityCompat.requestPermissions(this, new String[] {Manifest.permission.CAMERA}, MY_CAMERA_REQUEST_CODE);
+        }
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                == PackageManager.PERMISSION_DENIED){
+            ActivityCompat.requestPermissions(this, new String[] {Manifest.permission.WRITE_EXTERNAL_STORAGE}, MY_CAMERA_REQUEST_CODE);
+        }
 
         uploading = new ProgressDialog(MainActivity.this);
         uploading.setCancelable(false);
@@ -96,19 +119,51 @@ public class MainActivity extends AppCompatActivity {
         imageView.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
+                /*
+                if(Build.VERSION.SDK_INT>= Build.VERSION_CODES.M) {
+                    if (ContextCompat.checkSelfPermission(MainActivity.this,
+                            android.Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                        ActivityCompat.requestPermissions(MainActivity.this, new String[]{android.READ_EXTERNAL_STORAGE}, 1);
+                    }
+                }
+                 */
                 dispatchTakePictureIntent();
-
             }
         });
 
     }
 
     static final int REQUEST_IMAGE_CAPTURE = 1;
+    static final int REQUEST_TAKE_PHOTO = 1;
 
     private void dispatchTakePictureIntent() {
         Intent takePictureIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
         if (takePictureIntent.resolveActivity(getPackageManager()) != null) {
-            startActivityForResult(takePictureIntent, REQUEST_IMAGE_CAPTURE);
+            // Create the File where the photo should go
+            File photoFile = null;
+            try {
+                photoFile = createImageFile();
+            } catch (IOException ex) {
+                Toast.makeText(this, "Error occurred while creating the File", Toast.LENGTH_LONG).show();
+            }
+            // Continue only if the File was successfully created
+            if (photoFile != null) {
+                Uri photoURI = FileProvider.getUriForFile(this,
+                        "com.example.takepicture.fileprovider",
+                        photoFile);
+                Log.d("photoURITAG", "dispatchTakePictureIntent: " + photoURI.getPath());
+                String imagePath = photoURI.getPath();
+
+                Bundle bundle = new Bundle();
+//                bundle.putParcelable(MediaStore.EXTRA_OUTPUT, photoURI);
+                bundle.putString("path", imagePath);
+
+                takePictureIntent.putExtras(bundle);
+
+                /*takePictureIntent.putExtra("path", imagePath);
+                takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoURI);*/
+                startActivityForResult(takePictureIntent, REQUEST_IMAGE_CAPTURE);
+            }
         }
     }
 
@@ -116,15 +171,148 @@ public class MainActivity extends AppCompatActivity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         uploading.show();
         if (requestCode == REQUEST_IMAGE_CAPTURE && resultCode == RESULT_OK) {
-            Bundle extras = data.getExtras();
-            imageBitmap = (Bitmap) extras.get("data");
-            imageView.setImageBitmap(imageBitmap);
+            if(data==null) {
+                Toast.makeText(this, "Tidak ada data", Toast.LENGTH_SHORT).show();
+                uploading.dismiss();
+            } else {
+                String imagePath = data.getExtras().getString("path");
+                Bitmap imageBitmap = null;
+                try {
+                    imageBitmap = (Bitmap) loadBitmap(imagePath);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+                imageView.setImageBitmap(imageBitmap);
+
+                if (imageBitmap != null) {
+                    toStringImage(imageBitmap);
+                } else {
+                    uploading.dismiss();
+                }
+//                Bundle extras = data.getExtras();
+//                final Uri imageUri = Uri.parse(imagePath);
+//                final Uri imageUri = data.getParcelableExtra(MediaStore.EXTRA_OUTPUT);
+//                Toast.makeText(this, "berhasil cok", Toast.LENGTH_SHORT).show()
+//                Toast.makeText(this, imageUri.getPath(), Toast.LENGTH_SHORT).show();
+/*
+                InputStream imageStream = null;
+                try {
+                    imageStream = getContentResolver().openInputStream(imageUri);
+                } catch (FileNotFoundException e) {
+                    Toast.makeText(this, "File Bitmap tidak terbentuk", Toast.LENGTH_SHORT).show();
+                    e.printStackTrace();
+                    try {
+                        Thread.sleep(2000);
+                    } catch (InterruptedException ex) {
+                        ex.printStackTrace();
+                    }
+                }
+
+                final Bitmap selectedImage = BitmapFactory.decodeStream(imageStream);
+/*                Bundle extras = data.getExtras();
+                imageBitmap = (Bitmap) extras.get("data");*/
+//                toStringImage(selectedImage);
+//            Log.d("LOGURI", "onActivityResult: " + imageUri);
+//            imageBitmap = (Bitmap) extras.get("data");
+//            imageView.setImageBitmap(imageBitmap);
+            }
         }
-        if (imageBitmap != null) {
-            toStringImage(imageBitmap);
-        } else {
-            uploading.dismiss();
+    }
+
+    public Bitmap loadBitmap(String url) throws IOException {
+        InputStream in =  getContentResolver().openInputStream(Uri.parse("url"));
+        OutputStream out = new FileOutputStream(new File("your_file_here"));
+        byte[] buf = new byte[1024];
+        int len;
+        while((len=in.read(buf))>0){
+            out.write(buf,0,len);
         }
+        out.close();
+        in.close();
+
+
+        Bitmap bm = null;
+
+        bm = BitmapFactory.decodeStream(in);
+        /*
+        InputStream is = null;
+        BufferedInputStream bis = null;
+        try
+        {
+            URLConnection conn = new URL(url).openConnection();
+            conn.connect();
+            is = conn.getInputStream();
+            bis = new BufferedInputStream(is, 8192);
+            bm = BitmapFactory.decodeStream(bis);
+        }
+        catch (Exception e)
+        {
+            e.printStackTrace();
+        }
+        finally {
+            if (bis != null)
+            {
+                try
+                {
+                    bis.close();
+                }
+                catch (IOException e)
+                {
+                    e.printStackTrace();
+                }
+            }
+            if (is != null)
+            {
+                try
+                {
+                    is.close();
+                }
+                catch (IOException e)
+                {
+                    e.printStackTrace();
+                }
+            }
+        }*/
+        return bm;
+    }
+
+    public byte[] getBytesFromUri(Uri uri) {
+        byte[] bytes = null;
+
+        try {
+            InputStream inputStream = this.getContentResolver().openInputStream(uri);
+            bytes = getBytesFromInputStream(inputStream);
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        return bytes;
+    }
+
+    public static byte[] getBytesFromInputStream(InputStream is) throws IOException {
+        ByteArrayOutputStream os = new ByteArrayOutputStream();
+        byte[] buffer = new byte[0xFFFF];
+        for (int len = is.read(buffer); len != -1; len = is.read(buffer)) {
+            os.write(buffer, 0, len);
+        }
+        return os.toByteArray();
+    }
+
+    private File createImageFile() throws IOException {
+        // Create an image file name
+        String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
+        String imageFileName = "JPEG_" + timeStamp + "_";
+        File storageDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
+        File image = File.createTempFile(
+                imageFileName,  /* prefix */
+                ".jpg",         /* suffix */
+                storageDir      /* directory */
+        );
+
+        // Save a file: path for use with ACTION_VIEW intents
+        currentPhotoPath = image.getAbsolutePath();
+        return image;
     }
 
     public void toStringImage(Bitmap bmp) {
@@ -135,7 +323,6 @@ public class MainActivity extends AppCompatActivity {
         Log.d("TAG", "toStringImage: " + encodedImage);
         new uploadimageapi().execute("http://192.168.100.122:8000/api/uploadImage",encodedImage);
     }
-
 
     private class uploadimageapi extends AsyncTask<String, Void, String> {
         @Override
